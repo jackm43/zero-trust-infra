@@ -1,49 +1,42 @@
+# NOTE: modernized without live Terraform Registry access during initial drafting.
+# Run `terraform init` / `terraform validate` and cross-check exact resource &
+# argument names against the registry docs for cloudflare/cloudflare ~> 5.0 and
+# hashicorp/aws ~> 5.0 before applying (this will be verified as part of this pass).
+
 terraform {
-  backend "gcs" {
-    bucket = "YOUR_CREATED_TF_STATE_BUCKET_NAME"
-    prefix = "terraform/infra"
+  backend "s3" {
+    bucket       = "tf-state-vault-115495764887"
+    key          = "terraform/infra/terraform.tfstate"
+    region       = "us-east-1"
+    use_lockfile = true # native S3 state locking (Terraform >= 1.11, no DynamoDB table needed)
   }
 
   required_providers {
     cloudflare = {
-      source = "cloudflare/cloudflare"
+      source  = "cloudflare/cloudflare"
+      version = "~> 5.0"
     }
-    google = {
-      source = "hashicorp/google"
+    aws = {
+      source  = "hashicorp/aws"
+      version = "~> 5.0"
     }
     random = {
-      source = "hashicorp/random"
-    }
-    template = {
-      source = "hashicorp/template"
-    }
-    restapi = {
-      source = "fmontezuma/restapi"
+      source  = "hashicorp/random"
+      version = "~> 3.6"
     }
   }
-  required_version = ">= 1.0"
+  required_version = ">= 1.9"
 }
 
 # Providers
 provider "cloudflare" {
-  account_id = var.cloudflare_account_id
-  email      = var.cloudflare_email
-  api_key    = var.cloudflare_api_key
+  api_token = var.cloudflare_api_token
 }
 
-provider "google" {
-  project = var.gcp_project_id
+provider "aws" {
+  region = var.aws_region
 }
 
 provider "random" {}
 
-// Cloudflare for Teams REST
-provider "restapi" {
-  # Configuration options
-  uri = "https://api.cloudflare.com/client/v4/accounts/${var.cloudflare_account_id}"
-
-  headers = {
-    "X-Auth-Email" : var.cloudflare_email,
-    "X-Auth-Key" : var.cloudflare_api_key,
-  }
-}
+data "aws_caller_identity" "current" {}

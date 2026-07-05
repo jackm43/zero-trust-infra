@@ -1,50 +1,50 @@
-# GCP variables
-variable "gcp_project_id" {
-  description = "Google Cloud Platform (GCP) Project ID."
+# AWS variables
+variable "aws_region" {
+  description = "AWS region to deploy the Vault instance and supporting resources into."
   type        = string
 }
 
-variable "gcp_zone" {
-  description = "GCP region name."
+variable "aws_instance_type" {
+  description = "EC2 instance type for the Vault host."
   type        = string
-}
-
-variable "gcp_machine_type" {
-  description = "GCP VM instance machine type."
-  type        = string
-}
-
-variable "gcp_preemtible" {
-  description = ""
-  type        = bool
-}
-
-variable "gcp_automatic_restart" {
-  description = ""
-  type        = bool
 }
 
 # Cloudflare Variables
 variable "cloudflare_account_id" {
-  description = "The Cloudflare UUID for the Account the Zone lives in."
+  description = "The Cloudflare account ID (Zero Trust account) the tunnel/Access apps live in."
   type        = string
   sensitive   = true
 }
 
 variable "cloudflare_zone_name" {
-  description = "The Cloudflare Zone to use."
+  description = "The Cloudflare zone (domain) to use, e.g. jsmunro.me."
   type        = string
 }
 
-variable "cloudflare_email" {
-  description = "The Cloudflare user."
+variable "cloudflare_zone_id" {
+  description = "The Cloudflare zone ID for cloudflare_zone_name."
   type        = string
-  sensitive   = true
 }
 
-variable "cloudflare_api_key" {
-  description = "The Cloudflare user's API key."
+variable "cloudflare_api_token" {
+  description = "Scoped Cloudflare API token (replaces legacy email + Global API Key auth)."
   sensitive   = true
+  type        = string
+}
+
+# GitHub Identity Provider / Access variables
+variable "github_organization_name" {
+  description = "GitHub organization required for Access login via the GitHub identity provider."
+  type        = string
+}
+
+variable "github_identity_provider_id" {
+  description = "UUID of the existing Cloudflare Access GitHub identity provider to scope policies to."
+  type        = string
+}
+
+variable "vault_access_email" {
+  description = "Email required (in addition to the GitHub org membership) to be granted Access to Vault/SSH."
   type        = string
 }
 
@@ -59,43 +59,33 @@ variable "vault_subdomain_suffix_ssh" {
   type        = string
 }
 
-variable "vault_subdomain_suffix_warp" {
+variable "vault_subdomain_suffix_admin" {
   type = string
 }
 
 variable "vault_users" {
-  description = ""
+  description = "Emails allowed into the Vault UI Access application. Defaults to [var.vault_access_email]."
   type        = list(any)
   default     = []
 }
 
 variable "vault_ssh_users" {
-  description = ""
+  description = "Emails allowed into the SSH Access application (and created as sudoers on the instance). Defaults to [var.vault_access_email]."
   type        = list(any)
   default     = []
 }
 
 variable "vault_kms_auto_unseal" {
-  description = ""
+  description = "Whether to create an AWS KMS key and configure Vault's awskms auto-unseal seal."
   type        = bool
 }
 
-variable "vault_kms_keyring_name" {
-  description = ""
+variable "vault_kms_key_alias" {
+  description = "Alias for the AWS KMS auto-unseal key."
   type        = string
 }
 
-variable "vault_kms_keyring_location" {
-  description = ""
-  type        = string
-}
-
-variable "vault_gcs_bucket_name" {
-  description = ""
-  type        = string
-}
-
-variable "vault_gcs_location" {
-  description = ""
+variable "vault_s3_bucket_name" {
+  description = "Prefix for the S3 bucket used as the Vault storage backend (suffixed with the AWS account ID for global uniqueness)."
   type        = string
 }

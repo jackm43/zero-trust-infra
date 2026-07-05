@@ -1,7 +1,15 @@
-# Script to install Cloudflare Tunnel/SSH and Vault 
+#!/bin/bash
+# Script to install Cloudflare Tunnel/SSH and Vault
+set -euo pipefail
+
 # The OS is updated
 sudo apt update -y && sudo apt upgrade -yq
-sudo apt install -y software-properties-common
+sudo apt install -y software-properties-common jq unzip curl
+
+### Install AWS CLI v2 (needed to fetch the tunnel credentials secret)
+curl -fsSL "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o /tmp/awscliv2.zip
+unzip -q /tmp/awscliv2.zip -d /tmp
+sudo /tmp/aws/install
 
 ### Create unix users for vault_ssh_users
 %{ for user in vault_ssh_users }
@@ -32,43 +40,37 @@ sudo systemctl restart ssh
 
 ### Install and configure Cloudflare Tunnel
 
-# The cloudflare package for this OS is retrieved 
-wget https://bin.equinox.io/c/VdrWdbjqyF/cloudflared-stable-linux-amd64.deb
-sudo dpkg -i cloudflared-stable-linux-amd64.deb
+# cloudflared is fetched from the official GitHub releases (replaces the old
+# bin.equinox.io download link, which has since been retired).
+curl -fsSL -o /tmp/cloudflared.deb \
+  "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb"
+sudo dpkg -i /tmp/cloudflared.deb
 
-# Create /etc/cloudflared and fetch cloudflare tunnel credentials from GCP Secrets Manager
-mkdir /etc/cloudflared || echo /etc/cloudflared already exists
-gcloud secrets versions access latest --secret=cloudflare-tunnel-credentials > /etc/cloudflared/creds.json
+# Create /etc/cloudflared and fetch cloudflare tunnel credentials from AWS Secrets Manager
+mkdir -p /etc/cloudflared
+aws secretsmanager get-secret-value \
+  --region "${aws_region}" \
+  --secret-id "${tunnel_secret_name}" \
+  --query SecretString --output text > /etc/cloudflared/creds.json
 
 # Create cloudflared config
+# Ingress rules are managed remotely (config_src = "cloudflare" on the tunnel
+# resource), so the local config only needs the tunnel ID and credentials.
 cat <<EOF > /etc/cloudflared/config.yml
 tunnel: ${cf_tunnel_id}
 credentials-file: /etc/cloudflared/creds.json
 logfile: /var/log/cloudflared.log
 loglevel: info
-
-warp-routing:
-  enabled: true
-
-ingress:
-  - hostname: "*"
-    path: "^/_healthcheck$"
-    service: http_status:200
-  - hostname: "${vault_hostname}"
-    service: http://localhost:8200
-  - hostname: "${vault_ssh_hostname}"
-    service: ssh://localhost:22
-  - service: http_status:404
 EOF
 
 # Install cloudflared as a systemd service
 sudo cloudflared service install
 sudo service cloudflared start
 
-### Install and configure Vault
-curl -fsSL https://apt.releases.hashicorp.com/gpg | sudo apt-key add -
-sudo apt-add-repository "deb [arch=amd64] https://apt.releases.hashicorp.com $(lsb_release -cs) main"
-sudo apt-get update && sudo apt-get install vault
+### Install and configure Vault
+curl -fsSL https://apt.releases.hashicorp.com/gpg | sudo gpg --dearmor -o /usr/share/keyrings/hashicorp-archive-keyring.gpg
+echo "deb [signed-by=/usr/share/keyrings/hashicorp-archive-keyring.gpg] https://apt.releases.hashicorp.com $(lsb_release -cs) main" | sudo tee /etc/apt/sources.list.d/hashicorp.list
+sudo apt-get update && sudo apt-get install -y vault
 
 cat <<EOF > /etc/systemd/system/vault.service
 [Unit]
@@ -93,15 +95,12 @@ Capabilities=CAP_IPC_LOCK+ep
 CapabilityBoundingSet=CAP_SYSLOG CAP_IPC_LOCK
 NoNewPrivileges=yes
 ExecStart=/usr/bin/vault server -config=/etc/vault.d/vault.hcl
-ExecReload=/bin/kill --signal HUP $MAINPID
+ExecReload=/bin/kill --signal HUP \$MAINPID
 KillMode=process
 KillSignal=SIGINT
 Restart=on-failure
 RestartSec=5
 TimeoutStopSec=30
-StartLimitInterval=60
-StartLimitIntervalSec=60
-StartLimitBurst=3
 LimitNOFILE=65536
 LimitMEMLOCK=infinity
 
@@ -114,24 +113,24 @@ cat <<EOF > /etc/vault.d/vault.hcl
 ui = true
 mlock = true
 
-storage "gcs" {
-  bucket = "${vault_gcs_bucket_name}"
+storage "s3" {
+  bucket = "${vault_s3_bucket_name}"
+  region = "${aws_region}"
 }
 
 listener "tcp" {
-  address = "0.0.0.0:8200"
-  tls_disable = true # tls is terminated local cloudflared tunnel
+  address     = "0.0.0.0:8200"
+  tls_disable = true # tls is terminated at the local cloudflared tunnel
 }
 
 %{ if vault_kms_auto_unseal }
-seal "gcpckms" {
-  project     = "${gcp_project_id}"
-  region      = "${vault_kms_keyring_location}"
-  key_ring    = "${vault_kms_keyring_name}"
-  crypto_key  = "${vault_kms_keyring_name}"
+seal "awskms" {
+  region     = "${aws_kms_region}"
+  kms_key_id = "${vault_kms_key_id}"
 }
 %{ endif }
-
 EOF
 
-sudo service vault start
+sudo systemctl daemon-reload
+sudo systemctl enable vault
+sudo systemctl start vault

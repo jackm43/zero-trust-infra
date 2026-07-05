@@ -1,46 +1,53 @@
-data "cloudflare_zones" "zones" {
-  filter {
-    name        = var.cloudflare_zone_name
-    lookup_type = "exact"
-    status      = "active"
-  }
-}
-
-locals {
-  cloudflare_zone_id = lookup(element(data.cloudflare_zones.zones.zones, 0), "id")
-}
-
 # The random_id resource is used to generate a 35 character secret for the tunnel
 resource "random_id" "tunnel_secret" {
   byte_length = 35
 }
 
-# A Named Tunnel resource called zero_trust_vault
-resource "cloudflare_argo_tunnel" "vault" {
-  account_id = var.cloudflare_account_id
-  name       = "zero-trust-personal-vault"
-  secret     = random_id.tunnel_secret.b64_std
+# A Named (locally-managed credentials) Tunnel resource
+resource "cloudflare_zero_trust_tunnel_cloudflared" "vault" {
+  account_id    = var.cloudflare_account_id
+  name          = "zero-trust-personal-vault"
+  tunnel_secret = random_id.tunnel_secret.b64_std
+  config_src    = "cloudflare" # ingress rules managed remotely via the _config resource below
 }
 
-# Reverse engineered API calls for "cloudflared tunnel list ip [add|get|delete]"
-resource "restapi_object" "tunnel_route_ip" {
-  object_id    = urlencode("${google_compute_instance.vault.network_interface.0.network_ip}/32")
-  path         = ""
-  read_path    = "/teamnet/routes/ip/${google_compute_instance.vault.network_interface.0.network_ip}"
-  create_path  = "/teamnet/routes/network/{id}"
-  destroy_path = "/teamnet/routes/network/{id}"
+# Tunnel ingress configuration (replaces hand-rolled config.yml templating)
+resource "cloudflare_zero_trust_tunnel_cloudflared_config" "vault" {
+  account_id = var.cloudflare_account_id
+  tunnel_id  = cloudflare_zero_trust_tunnel_cloudflared.vault.id
 
-  read_search = {
-    results_key = "result"
+  config = {
+    ingress = [
+      {
+        hostname = "*"
+        path     = "^/_healthcheck$"
+        service  = "http_status:200"
+      },
+      {
+        hostname = "${var.vault_subdomain}.${var.cloudflare_zone_name}"
+        service  = "http://localhost:8200"
+      },
+      {
+        hostname = "${var.vault_subdomain}${var.vault_subdomain_suffix_ssh}.${var.cloudflare_zone_name}"
+        service  = "ssh://localhost:22"
+      },
+      {
+        # Raw Vault API for the vault-config Terraform module, reached via
+        # `cloudflared access tcp` (Access service-token auth) - no WARP needed.
+        hostname = "${var.vault_subdomain}${var.vault_subdomain_suffix_admin}.${var.cloudflare_zone_name}"
+        service  = "tcp://localhost:8200"
+      },
+      {
+        service = "http_status:404"
+      },
+    ]
   }
+}
 
-  data = jsonencode({
-    network   = "${google_compute_instance.vault.network_interface.0.network_ip}/32",
-    tunnel_id = cloudflare_argo_tunnel.vault.id,
-  })
-
-  force_new = [
-    "${google_compute_instance.vault.network_interface.0.network_ip}/32",
-    cloudflare_argo_tunnel.vault.id
-  ]
+# Native tunnel private network route (replaces the old restapi provider hack)
+resource "cloudflare_zero_trust_tunnel_cloudflared_route" "vault" {
+  account_id = var.cloudflare_account_id
+  tunnel_id  = cloudflare_zero_trust_tunnel_cloudflared.vault.id
+  network    = "${aws_instance.vault.private_ip}/32"
+  comment    = "Vault EC2 instance private route"
 }

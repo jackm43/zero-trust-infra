@@ -123,8 +123,31 @@ resource "cloudflare_zero_trust_access_policy" "vault_admin" {
   }]
 }
 
+# TEMPORARY - added to unblock a specific interactive CLI session while the
+# service-token-only headless path is being debugged separately. Reuses the
+# same GitHub-org + email allowlist group as everywhere else (no new
+# authorization boundary). Remove once no longer needed - see
+# docs/superpowers/plans/2026-07-05-vault-oidc-sso.md Task 2.
+resource "cloudflare_zero_trust_access_policy" "vault_admin_interactive_temp" {
+  account_id = var.cloudflare_account_id
+  name       = "GitHub org ${var.github_organization_name} + email allowlist (admin, temp)"
+  decision   = "allow"
+
+  include = [{
+    github_organization = {
+      name                 = var.github_organization_name
+      identity_provider_id = var.github_identity_provider_id
+    }
+  }]
+
+  require = [{
+    group = { id = cloudflare_zero_trust_access_group.vault_users.id }
+  }]
+}
+
 # Access application guarding the private, TCP-only admin path used by the
-# vault-config Terraform module (no browser/GitHub login here - service token only)
+# vault-config Terraform module (service token; temporarily also allows
+# interactive GitHub login - see policy comment above)
 resource "cloudflare_zero_trust_access_application" "vault_admin" {
   zone_id          = var.cloudflare_zone_id
   name             = "${var.vault_subdomain}${var.vault_subdomain_suffix_admin}.${var.cloudflare_zone_name}"
@@ -132,10 +155,16 @@ resource "cloudflare_zero_trust_access_application" "vault_admin" {
   session_duration = "24h"
   type             = "self_hosted"
 
-  policies = [{
-    id         = cloudflare_zero_trust_access_policy.vault_admin.id
-    precedence = 1
-  }]
+  policies = [
+    {
+      id         = cloudflare_zero_trust_access_policy.vault_admin.id
+      precedence = 1
+    },
+    {
+      id         = cloudflare_zero_trust_access_policy.vault_admin_interactive_temp.id
+      precedence = 2
+    },
+  ]
 }
 
 # Secondary, non-isolated policy reusing the same GitHub-org + email

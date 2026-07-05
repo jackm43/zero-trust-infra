@@ -2,11 +2,11 @@
 ## REQUIRED
 ####
 
-cloudflare_teams_name = ""
+cloudflare_teams_name = "jsmunro"
 
-# emails to assing admin policy to
+# emails to assign admin policy to
 vault_admins = [
-  "you@example.com"
+  "jack@jsmunro.me"
 ]
 
 ####

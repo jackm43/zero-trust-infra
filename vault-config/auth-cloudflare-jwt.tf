@@ -1,5 +1,5 @@
 resource "vault_jwt_auth_backend" "access_jwt" {
-  description  = "Demonstration of the Workers Cloudflare Accesss auth backend"
+  description  = "Cloudflare Access JWT auth backend"
   type         = "jwt"
   path         = "jwt"
   bound_issuer = "https://${var.cloudflare_teams_name}.cloudflareaccess.com"

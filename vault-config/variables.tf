@@ -1,5 +1,6 @@
 variable "VAULT_ROOT_TOKEN" {
   sensitive = true
+  type      = string
 }
 
 variable "cloudflare_teams_name" {

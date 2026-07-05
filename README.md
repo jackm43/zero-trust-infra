@@ -11,24 +11,28 @@ The focus was to achieve fast deployment and easy maintenance. Terraform takes c
 - **Cloudflare for Teams**
     - **Cloudflare Tunnel** _(exposing Vault, SSH to internet)_
     - **Cloudflare Access**
-        - Vault UI _(generic Cloudflare Access app)_
-        - SSH Web Terminal _(SSH access to GCE instance)_
+        - Vault UI _(GitHub org + email restricted Access application)_
+        - SSH Web Terminal _(SSH access to EC2 instance)_
+        - Admin API path _(service-token only, used by the `vault-config` Terraform module)_
         - JWT Auth backend _(Vault auth)_
-    - **Cloudflare WARP** to private network (through Tunnel)
-- **Google Cloud Platform**
-    - **GCE Instance** _(with deny-all incoming traffic)_
-    - **GCS Bucket** _(Vault storage)_
-    - **Secret Manager** _(Cloudflare Tunnel credentials store)_
+- **AWS**
+    - **EC2 Instance** _(with deny-all inbound security group)_
+    - **S3 Bucket** _(Vault storage backend)_
+    - **Secrets Manager** _(Cloudflare Tunnel credentials store)_
     - _(optional)_ **KMS** _(for Vault auto-unseal)_
+
+No WARP client is required anywhere in this stack - the Vault UI and SSH terminal are reached through the
+browser via Cloudflare Access, and the `vault-config` Terraform module reaches Vault's raw API through
+`cloudflared access tcp` using an Access service token.
 
 ## Estimated Costs
 ### Cloudflare 
 Free. _(for up to 50 users)_
 
-### Google Cloud Platform
-I cannot tell the exact GCP costs of this stack yet, but there is a Free Tier for the default machine type. 
-
-If you want to change the region, just note that only some regions are eligible for the [GCP Free Tier](https://cloud.google.com/free/docs/gcp-free-tier). 
+### AWS
+A `t3.micro` instance and a small S3 bucket are inexpensive, but not covered by a perpetual free tier the
+way the original GCP `e2-micro` design was. Check current [EC2](https://aws.amazon.com/ec2/pricing/on-demand/)
+and [S3](https://aws.amazon.com/s3/pricing/) pricing for your region.
 
 ## Deployment 
 
@@ -36,16 +40,14 @@ The deployment process consists of two steps. The first one (Infra) is to deploy
 
 ### 1. Pre-requisities
 In order to deploy this stack, make sure you have:
-- Terraform version 1.0+
-- [Google Cloud SDK](https://cloud.google.com/sdk/docs/install) setup and [authenticated](https://cloud.google.com/sdk/docs/authorizing) to a GCP project
-    - Its recommended creating a new GCP project, with following APIs enabled
-        - https://console.developers.google.com/apis/api/compute.googleapis.com/overview
-        - https://console.developers.google.com/apis/api/secretmanager.googleapis.com/overview
-        - _(optional - if auto-unseal is desired - **additional costs!**)_ https://console.developers.google.com/apis/api/cloudkms.googleapis.com/overview
-
-- Google Storage Bucket for Terraform state
-    - Manually create a GCS bucket in your GCP project, name it e.g. `tf-state-vault-my-project-id`
-- Cloudflare Account with Cloudflare for Teams enabled
+- Terraform version 1.9+
+- [AWS CLI](https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html) configured with credentials for the target account
+- An S3 bucket for Terraform state (e.g. `tf-state-vault-<your-account-id>`), created ahead of time
+- Cloudflare account with Cloudflare for Teams (Zero Trust) enabled, plus:
+    - A scoped Cloudflare API token (Account: Cloudflare Tunnel, Access: Apps and Policies, Zone: DNS - edit permissions)
+    - A GitHub identity provider already configured under Access > Authentication (this repo attaches
+      policies to an *existing* IdP rather than creating one, since Terraform can't read back an OAuth
+      client secret safely)
 
 ### 2. Infra
 Please refer to [infra folder](./infra/)
@@ -54,6 +56,7 @@ Please refer to [infra folder](./infra/)
 Please refer to [vault-config folder](./vault-config/)
 
 ## Couple of notes
-- Cloudflare Teams tunnels IP routes are Terraformed using REST provider, this will be changed to official cloudflare provider once supported.
+- Cloudflare Access policies require both GitHub org membership *and* a specific allowed email
+  (`include`: GitHub org rule, `require`: an Access group of allowed emails) - see [infra/cloudflare-access.tf](./infra/cloudflare-access.tf).
 - OIDC auth flow or automatic WARP auth to get the JWT token would be better, this will be implemented if and once supported.
 - Why? You may ask. The next step is to configure my local development to load ENV variables based on the project directory.
