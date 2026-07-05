@@ -14,7 +14,7 @@
 - Reuse the existing `cloudflare_zero_trust_access_group.vault_users` group as the authorization boundary - do not create a new email allowlist.
 - Old `jwt`-type auth backend and its role must be fully removed (clean cutover, not dual auth methods).
 - This repo has no automated test suite for Terraform config - "tests" in this plan are `terraform validate`, `terraform plan` diff review, and a manual browser verification at the end. Treat each `terraform plan` review as the equivalent of "run the test and check the expected output."
-- Every `terraform` command in `infra/` and `vault-config/` must be run through `op run --env-file=../op.env -- <command>` (from within the stack directory) to inject AWS/Cloudflare credentials - never run `terraform` directly, it will fail auth.
+- Every `terraform` command in `infra/` and `vault-config/` must be run through `op run --env-file=../.env -- <command>` (from within the stack directory) to inject AWS/Cloudflare credentials - never run `terraform` directly, it will fail auth.
 - `vault-config`'s `terraform` commands additionally require `TF_VAR_VAULT_ROOT_TOKEN` (or a `-var` flag) set to a valid Vault root/privileged token, AND a local proxy to Vault's admin API reachable at `http://127.0.0.1:8200` (see Task 2 prerequisites).
 
 ---
@@ -107,8 +107,8 @@ output "vault_oidc_client_secret" {
 
 Run (from `infra/`):
 ```bash
-op run --env-file=../op.env -- terraform validate
-op run --env-file=../op.env -- terraform plan -out=/tmp/tfplan-oidc-infra
+op run --env-file=../.env -- terraform validate
+op run --env-file=../.env -- terraform plan -out=/tmp/tfplan-oidc-infra
 ```
 Expected: `terraform validate` prints `Success! The configuration is valid.` The plan shows exactly **2 resources to add** (`cloudflare_zero_trust_access_policy.vault_oidc_idp`, `cloudflare_zero_trust_access_application.vault_oidc`), **0 to change, 0 to destroy**. If it shows changes to any *existing* resource (e.g. `vault_users` group, the main `vault` app/policy), stop and re-check Step 1 - nothing existing should be touched.
 
@@ -116,7 +116,7 @@ Expected: `terraform validate` prints `Success! The configuration is valid.` The
 
 Run (from `infra/`):
 ```bash
-op run --env-file=../op.env -- terraform apply /tmp/tfplan-oidc-infra
+op run --env-file=../.env -- terraform apply /tmp/tfplan-oidc-infra
 ```
 Expected: `Apply complete! Resources: 2 added, 0 changed, 0 destroyed.`
 
@@ -124,9 +124,9 @@ Expected: `Apply complete! Resources: 2 added, 0 changed, 0 destroyed.`
 
 Run (from `infra/`):
 ```bash
-op run --env-file=../op.env -- terraform output vault_oidc_app_id
-op run --env-file=../op.env -- terraform output vault_oidc_client_id
-op run --env-file=../op.env -- terraform output vault_oidc_client_secret
+op run --env-file=../.env -- terraform output vault_oidc_app_id
+op run --env-file=../.env -- terraform output vault_oidc_client_id
+op run --env-file=../.env -- terraform output vault_oidc_client_secret
 ```
 Expected: first two print plain string values (a UUID and a client ID); the third prints `<sensitive>` (confirming it's marked sensitive, not that it's broken - use `-raw` if you need to see the actual value for debugging).
 
@@ -161,8 +161,8 @@ EOF
 **Prerequisite - reaching Vault:** `vault-config`'s `vault` provider talks to `http://127.0.0.1:8200`, which must be a live proxy to Vault's admin API. In a separate terminal, run (and leave running):
 ```bash
 cd /home/jackm/projects/zero-trust-infra/infra
-CLIENT_ID=$(op run --env-file=../op.env -- terraform output -raw vault_admin_service_token_client_id)
-CLIENT_SECRET=$(op run --env-file=../op.env -- terraform output -raw vault_admin_service_token_client_secret)
+CLIENT_ID=$(op run --env-file=../.env -- terraform output -raw vault_admin_service_token_client_id)
+CLIENT_SECRET=$(op run --env-file=../.env -- terraform output -raw vault_admin_service_token_client_secret)
 cloudflared access tcp --hostname vault-admin.jsmunro.me --url 127.0.0.1:8200 \
   --service-token-id "$CLIENT_ID" --service-token-secret "$CLIENT_SECRET"
 ```
@@ -228,8 +228,8 @@ Note: this duplicates the `vault_identity_entity`/`vault_identity_entity_alias` 
 Run (from `vault-config/`, with the tunnel from the prerequisite running in another terminal):
 ```bash
 export TF_VAR_VAULT_ROOT_TOKEN='<your root/privileged token>'
-op run --env-file=../op.env -- terraform validate
-op run --env-file=../op.env -- terraform plan -out=/tmp/tfplan-oidc-vault
+op run --env-file=../.env -- terraform validate
+op run --env-file=../.env -- terraform plan -out=/tmp/tfplan-oidc-vault
 ```
 Expected: `terraform validate` succeeds. Plan shows: `vault_jwt_auth_backend.access_jwt` and `vault_jwt_auth_backend_role.default` **destroyed** (old ones, different resource address `access_jwt` vs new `access_oidc`), `vault_jwt_auth_backend.access_oidc` and `vault_jwt_auth_backend_role.default` (new resource, same role address reused) **created**, and `vault_identity_entity_alias.vault_admin` **updated in-place** (only `mount_accessor` changes). `vault_identity_entity.vault_admin` and `vault_policy.folder` (from `policies.tf`) should show **no changes**.
 
@@ -238,7 +238,7 @@ If the plan shows `vault_identity_entity.vault_admin` being destroyed/recreated,
 - [ ] **Step 4: Apply**
 
 ```bash
-op run --env-file=../op.env -- terraform apply /tmp/tfplan-oidc-vault
+op run --env-file=../.env -- terraform apply /tmp/tfplan-oidc-vault
 ```
 Expected: apply completes with the resource counts matching the plan from Step 3 (2 destroyed, 2 created, 1 changed, rest unchanged).
 

@@ -10,11 +10,11 @@ set -euo pipefail
 #   scripts/deploy.sh apply infra       # apply just infra/
 #   scripts/deploy.sh apply vault-config # apply just vault-config/
 #
-# Requires: 1Password CLI (`op`) signed in, and op.env filled in with your
-# vault/item/field references (see op.env in the repo root).
+# Requires: 1Password CLI (`op`) signed in, and .env filled in with your
+# vault/item/field references (see .env in the repo root).
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-ENV_FILE="${ROOT_DIR}/op.env"
+ENV_FILE="${ROOT_DIR}/.env"
 
 ACTION="${1:-plan}"
 TARGET="${2:-all}"
